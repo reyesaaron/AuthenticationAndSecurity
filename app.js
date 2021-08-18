@@ -5,7 +5,7 @@ require('dotenv').config();
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require('mongoose');
-const encrypt = require('mongoose-encryption');
+const md5 = require('md5');
 
 // APP INITIALIZATION FOR EXPRESS
 const app = express();
@@ -29,8 +29,8 @@ const userSchema = new mongoose.Schema({
     }
 });
 
-// TO ENCRYPT OUR PASSWORD
-userSchema.plugin(encrypt, { secret: process.env.SECRET, encryptedFields: ["password"] });
+// TO HASH OUR PASSWORD
+
 
 // DATABASE MODEL
 const User = mongoose.model('User', userSchema);
@@ -50,7 +50,7 @@ app.get("/register", (req, res) => {
 app.post("/register", (req, res) => {
     const newUser = new User({ 
         email: req.body.username,
-        password: req.body.password,
+        password: md5(req.body.password),
     });
 
     newUser.save((err) => {
@@ -74,7 +74,7 @@ app.post("/login", (req, res) => {
     User.findOne({email: req.body.username}, (err, foundUser) =>{
 
         if(foundUser){
-           if (foundUser.password === req.body.password){
+           if (foundUser.password === md5(req.body.password)){
                res.render("secrets");
            } else{
                res.send("The account is invalid! Please input a valid account or register first.");
