@@ -1,11 +1,9 @@
-///////////////////////////////////////////////////// ENVIRONMENT VARIABLES /////////////////////////////////////////////////////////////
-require('dotenv').config();
-
 ///////////////////////////////////////////////////// MODULES /////////////////////////////////////////////////////////////
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require('mongoose');
-const md5 = require('md5');
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
 
 // APP INITIALIZATION FOR EXPRESS
 const app = express();
@@ -29,8 +27,6 @@ const userSchema = new mongoose.Schema({
     }
 });
 
-// TO HASH OUR PASSWORD
-
 
 // DATABASE MODEL
 const User = mongoose.model('User', userSchema);
@@ -48,20 +44,22 @@ app.get("/register", (req, res) => {
 })
 
 app.post("/register", (req, res) => {
-    const newUser = new User({ 
-        email: req.body.username,
-        password: md5(req.body.password),
-    });
 
-    newUser.save((err) => {
-        if (!err) {
-            console.log("Successfully added a new user!");
-            res.redirect("/");
-        } else{
-            console.log(err);
-        }
-    })
-
+    bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
+        const newUser = new User({ 
+            email: req.body.username,
+            password: hash,
+        });
+    
+        newUser.save((err) => {
+            if (!err) {
+                console.log("Successfully added a new user!");
+                res.redirect("/");
+            } else{
+                console.log(err);
+            }
+        })
+    }); 
 })
 
 ///////////////////////////////////////////////////// LOGIN ROUTE /////////////////////////////////////////////////////////////
@@ -72,13 +70,15 @@ app.get("/login", (req, res) => {
 
 app.post("/login", (req, res) => {
     User.findOne({email: req.body.username}, (err, foundUser) =>{
-
         if(foundUser){
-           if (foundUser.password === md5(req.body.password)){
-               res.render("secrets");
-           } else{
-               res.send("The account is invalid! Please input a valid account or register first.");
-           }
+            bcrypt.compare(req.body.password, foundUser.password, function(err, result) {
+                if(result){
+                    console.log("Successfully login!");
+                    res.render("secrets");
+                } else {
+                    res.send("The account is invalid! Please input a valid account or register first.");
+                }
+            });
         } else {
             res.send("The account is invalid! Please input a valid account or register first.");
         }
