@@ -1,11 +1,17 @@
+require('dotenv').config();
 ///////////////////////////////////////////////////// MODULES /////////////////////////////////////////////////////////////
 const express = require("express");
 const ejs = require("ejs");
 const mongoose = require('mongoose');
+const findOrCreate = require('mongoose-findorcreate');
 ///////////////////////////////////////////////////// PASSPORT MODULES /////////////////////////////////////////////////////////////
 const session = require('express-session');
 const passport = require('passport');
 const passportLocalMongoose = require("passport-local-mongoose");
+///////////////////////////////////////////////////// GOOGLE MODULES /////////////////////////////////////////////////////////////
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+///////////////////////////////////////////////////// FACEBOOK MODULES /////////////////////////////////////////////////////////////
+const FacebookStrategy = require("passport-facebook").Strategy;
 
 // APP INITIALIZATION FOR EXPRESS
 const app = express();
@@ -35,11 +41,15 @@ const userSchema = new mongoose.Schema({
     },
     password: {
         type: String,
-    }
+    },
+    googleId: String,
+    facebookId: String,
+    secret: String,
 });
 
 //Using passport-local-mongoose for authentication
 userSchema.plugin(passportLocalMongoose);
+userSchema.plugin(findOrCreate);
 
 // DATABASE MODEL
 const User = mongoose.model('User', userSchema);
@@ -48,15 +58,71 @@ const User = mongoose.model('User', userSchema);
 // To setup passport-local LocalStrategy
 passport.use(User.createStrategy()); 
 // To create the cookies of the user when in session/login
-passport.serializeUser(User.serializeUser());
+passport.serializeUser(function(user, done) {
+    done(null, user.id);
+  });
 // To remove the cookies of the user when out of the session/logout
-passport.deserializeUser(User.deserializeUser());
+passport.deserializeUser(function(id, done) {
+    User.findById(id, function(err, user) {
+      done(err, user);
+    });
+  });
+
+///////////////////////////////////////////////////// SETTING UP GOOGLE STRATEGY  /////////////////////////////////////////////////////////////
+passport.use(new GoogleStrategy({
+    clientID: process.env.CLIENT_ID,
+    clientSecret: process.env.CLIENT_SECRET,
+    callbackURL: "http://localhost:3000/auth/google/secret",
+    userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    User.findOrCreate({ googleId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
+
+///////////////////////////////////////////////////// SETTING UP FACEBOOK STRATEGY  /////////////////////////////////////////////////////////////
+passport.use(new FacebookStrategy({
+    clientID: process.env.CLIENT_ID_FB,
+    clientSecret: process.env.CLIENT_SECRET_FB,
+    callbackURL: "http://localhost:3000/auth/facebook/secret"
+  },
+  function(accessToken, refreshToken, profile, cb) {
+    User.findOrCreate({ facebookId: profile.id }, function (err, user) {
+      return cb(err, user);
+    });
+  }
+));
 
 ///////////////////////////////////////////////////// HOME ROUTE /////////////////////////////////////////////////////////////
 
 app.get("/", (req, res) => {
     res.render("home");
 })
+
+///////////////////////////////////////////////////// GOOGLE AUTH ROUTE /////////////////////////////////////////////////////////////
+app.get('/auth/google',
+  passport.authenticate("google", { scope: ["profile"] })
+  );
+
+app.get("/auth/google/secret", 
+  passport.authenticate("google", { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect secrets.
+    res.redirect('/secrets');
+  });
+
+///////////////////////////////////////////////////// FACEBOOK AUTH ROUTE /////////////////////////////////////////////////////////////
+app.get("/auth/facebook",
+  passport.authenticate("facebook"));
+
+app.get("/auth/facebook/secret",
+  passport.authenticate("facebook", { failureRedirect: '/login' }),
+  function(req, res) {
+    // Successful authentication, redirect home.
+    res.redirect('/secrets');
+  });
 
 ///////////////////////////////////////////////////// REGISTER ROUTE /////////////////////////////////////////////////////////////
 
@@ -105,12 +171,43 @@ app.post("/login", (req, res) => {
 
 ///////////////////////////////////////////////////// SECRETS ROUTE /////////////////////////////////////////////////////////////
 app.get("/secrets", (req, res) => {
+    User.find({"secret": {$ne: null}}, (err, foundUsers) =>{
+        if(err){
+            console.log(err);
+        } else {
+            if(foundUsers){
+                res.render("secrets", {
+                    usersWithSecrets: foundUsers
+                })
+            }
+        }
+    })
+})
+
+///////////////////////////////////////////////////// SUBMIT ROUTE /////////////////////////////////////////////////////////////
+app.get("/submit", (req, res) => {
     if(req.isAuthenticated()){
-        res.render("secrets");
+        res.render("submit");
     } else {
         res.redirect("/login");
     }
+});
+
+app.post("/submit", (req, res) => {
+    const submittedSecret = req.body.secret;
+    
+    User.findById(req.user._id, (err, foundUser) => {
+        if (foundUser){
+            foundUser.secret = submittedSecret;
+            foundUser.save(() => {
+                res.redirect("/secrets");
+            });
+        } else {
+            console.log("User not found!");
+        }
+    })
 })
+
 
 ///////////////////////////////////////////////////// LOGOUT ROUTE /////////////////////////////////////////////////////////////
 app.get("/logout", (req, res) => {
